@@ -1,0 +1,41 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "tbone-recorder"
+version = "1.0.0"
+description = "Cross-platform recording interface for the t.bone USB microphone (and any other USB audio input)"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Michael Kendler" }]
+keywords = ["audio", "recording", "microphone", "t.bone", "thomann", "usb", "wav"]
+classifiers = [
+  "Environment :: Console",
+  "Intended Audience :: End Users/Desktop",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: MacOS :: MacOS X",
+  "Operating System :: Microsoft :: Windows",
+  "Operating System :: POSIX :: Linux",
+  "Programming Language :: Python :: 3",
+  "Topic :: Multimedia :: Sound/Audio :: Capture/Recording",
+]
+dependencies = [
+  "sounddevice>=0.4.6",
+  "soundfile>=0.12.1",
+  "numpy>=1.24",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7"]
+
+[project.urls]
+Homepage = "https://github.com/Kdman0code/tbone-recorder"
+Issues = "https://github.com/Kdman0code/tbone-recorder/issues"
+
+[project.scripts]
+tbone-rec = "tbone_recorder.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/tbone_recorder"]

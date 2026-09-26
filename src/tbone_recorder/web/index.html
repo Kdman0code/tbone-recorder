@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>t.bone recorder</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="bar">
+    <div class="ident">
+      <span id="statusDot" class="dot" title="disconnected"></span>
+      <div>
+        <h1>t.bone recorder</h1>
+        <p id="deviceLabel" class="sub">connecting…</p>
+      </div>
+    </div>
+    <button id="quitBtn" class="ghost" title="Stop the server and close">Quit</button>
+  </header>
+
+  <div id="alerts"></div>
+
+  <main>
+    <section class="card meterCard">
+      <div class="cardHead">
+        <h2>Input level</h2>
+        <span id="clipPill" class="pill clip" hidden>CLIP</span>
+      </div>
+      <div id="meters" class="meters"></div>
+      <div class="scale" aria-hidden="true">
+        <span>-60</span><span>-48</span><span>-36</span><span>-24</span><span>-12</span><span>-6</span><span>0 dB</span>
+      </div>
+    </section>
+
+    <section class="card transport">
+      <button id="recBtn" class="rec" disabled>
+        <span class="recDot"></span>
+        <span id="recLabel">Record</span>
+      </button>
+      <div class="readout">
+        <div id="elapsed" class="time">00:00.0</div>
+        <div id="recInfo" class="sub">ready</div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Input</h2>
+      <div class="grid">
+        <label class="field">
+          <span>Device</span>
+          <select id="deviceSel"></select>
+        </label>
+        <label class="field">
+          <span>Sample rate</span>
+          <select id="rateSel"></select>
+        </label>
+      </div>
+      <p id="deviceMeta" class="hint"></p>
+    </section>
+
+    <section class="card">
+      <h2>Recording format</h2>
+      <div class="grid">
+        <label class="field">
+          <span>Channels</span>
+          <select id="chanSel">
+            <option value="1">Mono</option>
+            <option value="2">Stereo</option>
+          </select>
+        </label>
+        <label class="field" id="monoField">
+          <span>Mono source</span>
+          <select id="monoSel">
+            <option value="left">Left channel</option>
+            <option value="right">Right channel</option>
+            <option value="mix">Mix both</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>Bit depth</span>
+          <select id="subSel"></select>
+        </label>
+      </div>
+      <p class="hint">
+        The SC 500 has one capsule, so both channels normally carry the same
+        signal — mono keeps the file half the size for no loss.
+      </p>
+    </section>
+
+    <section class="card">
+      <div class="cardHead">
+        <h2>Recordings</h2>
+        <div class="headActions">
+          <code id="outdir" class="path"></code>
+          <button id="revealBtn" class="ghost sm">Open folder</button>
+        </div>
+      </div>
+      <ul id="fileList" class="files"></ul>
+      <p id="emptyFiles" class="hint">Nothing recorded yet.</p>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
