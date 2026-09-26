@@ -72,6 +72,23 @@ memos, whatever) uses it too, the same way plugging in a USB headset usually
 takes over as default. Pass `--no-set-default` to leave your OS default
 alone and only use the t.bone inside this app.
 
+That only happens while `tbone-rec` is running, though. To have it happen
+automatically every time you plug the mic in -- login item, no interface,
+nothing to remember to start -- run:
+
+```bash
+tbone-rec --install-watcher
+```
+
+This installs a small background process (a macOS `launchd` agent / a
+Windows Scheduled Task, started now and again at every login) that watches
+for the t.bone connecting and switches your OS default input to it, then
+gets out of the way -- it doesn't fight you if you switch to something else
+afterwards, only reacting the next time the mic disconnects and reconnects.
+`tbone-rec --watch` runs the same loop in the foreground first, if you want
+to see it work before installing it. `tbone-rec --uninstall-watcher` removes
+it.
+
 | Option | What it does |
 | --- | --- |
 | `tbone-rec` | start the interface |
@@ -83,6 +100,9 @@ alone and only use the t.bone inside this app.
 | `tbone-rec --port 8765` | pin the HTTP port |
 | `tbone-rec --no-browser` | do not open a browser |
 | `tbone-rec --no-set-default` | don't touch the OS default microphone |
+| `tbone-rec --watch` | foreground loop: switch the OS default whenever the t.bone connects |
+| `tbone-rec --install-watcher` | do the above automatically, forever, starting at login |
+| `tbone-rec --uninstall-watcher` | remove the login item |
 
 Your device, format and folder choices are remembered between runs.
 
@@ -144,6 +164,10 @@ audio would distort.
 - `system_audio.py` — makes the t.bone the OS default input: CoreAudio via
   `ctypes` on macOS, the undocumented `IPolicyConfig` interface (via `pycaw`)
   on Windows. Best-effort; recording works even if the OS refuses.
+- `watcher.py` / `autostart.py` — the login item behind `--install-watcher`:
+  a loop that only enumerates devices (never opens a stream) and reacts to
+  the t.bone connecting, installed as a `launchd` agent on macOS or a
+  Scheduled Task on Windows.
 - `web/` — the interface. Meters stream over Server-Sent Events.
 
 Built on [PortAudio](http://www.portaudio.com/) via

@@ -4,7 +4,9 @@ import sys
 
 import pytest
 
-from tbone_recorder import config, devices, engine, system_audio
+import shutil
+
+from tbone_recorder import autostart, config, devices, engine, export, system_audio, watcher
 
 
 def test_dbfs_scale():
@@ -127,6 +129,35 @@ def test_set_default_input_missing_device_is_safe():
     assert result.ok is False
 
 
+def test_export_mp3_missing_ffmpeg_raises_cleanly(tmp_path):
+    """No ffmpeg on the box must be a clear error, not a crash."""
+    src = tmp_path / "take.wav"
+    src.write_bytes(b"not real audio, ffmpeg should never be invoked on it")
+    with pytest.raises(export.ExportError, match="ffmpeg"):
+        export.export_mp3(src, ffmpeg=None if shutil.which("ffmpeg") else "/no/such/ffmpeg")
+
+
+def test_export_mp3_destination_is_derived_not_taken_from_caller(tmp_path):
+    """The output path must always be src's own name with a .mp3 suffix --
+    never something an untrusted caller could redirect."""
+    src = tmp_path / "2026-09-27_10-00-00_take.wav"
+    assert src.with_suffix(".mp3") == tmp_path / "2026-09-27_10-00-00_take.mp3"
+
+
+def test_export_mp3_encodes_a_real_wav(tmp_path):
+    if not shutil.which("ffmpeg"):
+        pytest.skip("ffmpeg not available on this runner")
+    sf = pytest.importorskip("soundfile")
+    np = pytest.importorskip("numpy")
+    src = tmp_path / "take.wav"
+    sf.write(str(src), np.zeros(4800, dtype="float32"), 48000, subtype="PCM_16")
+
+    dest = export.export_mp3(src)
+
+    assert dest == src.with_suffix(".mp3")
+    assert dest.is_file() and dest.stat().st_size > 0
+
+
 def test_disconnect_midrecording_clears_recording_state():
     """Unplugging mid-take must not leave the UI showing a live recording."""
     eng = engine.RecorderEngine.__new__(engine.RecorderEngine)
@@ -144,3 +175,95 @@ def test_disconnect_midrecording_clears_recording_state():
     assert "take.wav" in eng.error and "kept" in eng.error
     # Meters must not keep showing the last live level.
     assert eng.levels[0]["peak"] == engine._SILENCE
+
+
+def test_watcher_acts_only_on_the_connect_transition(monkeypatch):
+    """Once the t.bone is default, switching away yourself must not get
+    fought on every poll -- only the next unplug/replug reasserts it."""
+    calls = []
+    monkeypatch.setattr(
+        watcher.system_audio,
+        "set_default_input",
+        lambda name, manufacturer=None: (calls.append(name) or system_audio.SetDefaultResult(True, "ok")),
+    )
+    tbone = {"name": "Microphone", "manufacturer": "Thomann", "likely_tbone": True}
+    other = {"name": "MacBook Pro Microphone", "manufacturer": "Apple Inc.", "likely_tbone": False}
+
+    present, message = watcher._tick(False, [other, tbone])
+    assert present is True and message is not None
+    assert calls == ["Microphone"]
+
+    # Still connected on the next poll: no repeat action.
+    present, message = watcher._tick(present, [other, tbone])
+    assert present is True and message is None
+    assert calls == ["Microphone"]
+
+    # Unplugged: no action, just tracks the state.
+    present, message = watcher._tick(present, [other])
+    assert present is False and message is None
+    assert calls == ["Microphone"]
+
+    # Replugged: acts again.
+    present, message = watcher._tick(present, [other, tbone])
+    assert present is True and message is not None
+    assert calls == ["Microphone", "Microphone"]
+
+
+def test_autostart_unsupported_platform_is_safe(monkeypatch):
+    monkeypatch.setattr(autostart.sys, "platform", "linux")
+    assert not autostart.is_supported()
+    assert autostart.install().ok is False
+    assert autostart.uninstall().ok is False
+
+
+def test_autostart_macos_install_writes_plist_and_calls_launchctl(tmp_path, monkeypatch):
+    monkeypatch.setattr(autostart.sys, "platform", "darwin")
+    monkeypatch.setattr(autostart.Path, "home", lambda: tmp_path)
+    monkeypatch.setattr(autostart.cfg_mod, "config_dir", lambda: tmp_path / "config")
+
+    calls = []
+
+    class FakeProc:
+        returncode = 0
+        stderr = ""
+
+    def fake_run(cmd, **kwargs):
+        calls.append(cmd)
+        return FakeProc()
+
+    monkeypatch.setattr(autostart.subprocess, "run", fake_run)
+
+    result = autostart.install()
+    assert result.ok is True
+    plist_path = tmp_path / "Library" / "LaunchAgents" / "com.tbone-recorder.watcher.plist"
+    assert plist_path.is_file()
+    assert "tbone_recorder" in plist_path.read_text("utf-8")
+    assert any(c[:2] == ["launchctl", "load"] for c in calls if len(c) >= 2)
+
+    result = autostart.uninstall()
+    assert result.ok is True
+    assert not plist_path.exists()
+
+
+def test_autostart_windows_install_uses_schtasks(monkeypatch):
+    monkeypatch.setattr(autostart.sys, "platform", "win32")
+    monkeypatch.setattr(autostart.cfg_mod, "config_dir", lambda: __import__("pathlib").Path("C:/cfg"))
+
+    calls = []
+
+    class FakeProc:
+        returncode = 0
+        stderr = ""
+        stdout = ""
+
+    def fake_run(cmd, **kwargs):
+        calls.append(cmd)
+        return FakeProc()
+
+    monkeypatch.setattr(autostart.subprocess, "run", fake_run)
+
+    result = autostart.install()
+    assert result.ok is True
+    create_call = next(c for c in calls if "/Create" in c)
+    assert "tbone_recorder" in " ".join(create_call)
+    assert "--watch" in " ".join(create_call)

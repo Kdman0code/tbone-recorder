@@ -9,9 +9,11 @@ import time
 import webbrowser
 from pathlib import Path
 
+from . import autostart
 from . import config as cfg_mod
 from . import devices as devices_mod
 from . import system_audio
+from . import watcher as watcher_mod
 from .engine import EngineError, RecorderEngine
 from .server import serve
 
@@ -96,6 +98,36 @@ def cmd_check(device: int | None, samplerate: int, seconds: float = 3.0) -> int:
     return 0
 
 
+def cmd_watch() -> int:
+    """Foreground loop: make the t.bone the OS default whenever it connects.
+
+    This is what the login item (see --install-watcher) runs in the
+    background; running it directly is how to try it out first.
+    """
+    if not system_audio.is_supported():
+        print("Setting the OS default input isn't supported on this platform.")
+        return 1
+    print(f"Watching for the t.bone... (log: {watcher_mod.log_path()})")
+    print("Press Ctrl+C to stop.\n")
+    try:
+        watcher_mod.run()
+    except KeyboardInterrupt:
+        print("\nStopped.")
+    return 0
+
+
+def cmd_install_watcher() -> int:
+    result = autostart.install()
+    print(result.message)
+    return 0 if result.ok else 1
+
+
+def cmd_uninstall_watcher() -> int:
+    result = autostart.uninstall()
+    print(result.message)
+    return 0 if result.ok else 1
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="tbone-rec",
@@ -121,10 +153,31 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="don't make the t.bone the OS default microphone when it's the one in use",
     )
+    parser.add_argument(
+        "--watch",
+        action="store_true",
+        help="run in the foreground, making the t.bone the OS default mic whenever it connects",
+    )
+    parser.add_argument(
+        "--install-watcher",
+        action="store_true",
+        help="run --watch automatically at every login (macOS launchd / Windows Scheduled Task)",
+    )
+    parser.add_argument(
+        "--uninstall-watcher",
+        action="store_true",
+        help="remove the login item installed by --install-watcher",
+    )
     args = parser.parse_args(argv)
 
     if args.list_devices:
         return cmd_list_devices()
+    if args.install_watcher:
+        return cmd_install_watcher()
+    if args.uninstall_watcher:
+        return cmd_uninstall_watcher()
+    if args.watch:
+        return cmd_watch()
 
     cfg = cfg_mod.load()
     if args.outdir:
