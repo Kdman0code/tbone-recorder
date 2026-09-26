@@ -25,6 +25,7 @@ dependencies = [
   "sounddevice>=0.4.6",
   "soundfile>=0.12.1",
   "numpy>=1.24",
+  "pycaw>=20240102; sys_platform == 'win32'",
 ]
 
 [project.optional-dependencies]

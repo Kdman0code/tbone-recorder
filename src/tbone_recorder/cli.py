@@ -11,6 +11,7 @@ from pathlib import Path
 
 from . import config as cfg_mod
 from . import devices as devices_mod
+from . import system_audio
 from .engine import EngineError, RecorderEngine
 from .server import serve
 
@@ -115,6 +116,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--outdir", help="where to save recordings")
     parser.add_argument("--port", type=int, default=0, help="HTTP port (default: pick a free one)")
     parser.add_argument("--no-browser", action="store_true", help="do not open a browser")
+    parser.add_argument(
+        "--no-set-default",
+        action="store_true",
+        help="don't make the t.bone the OS default microphone when it's the one in use",
+    )
     args = parser.parse_args(argv)
 
     if args.list_devices:
@@ -186,6 +192,10 @@ def main(argv: list[str] | None = None) -> int:
         print("  input      none detected -- pick one in the browser")
     if opened_error:
         print(f"  warning    {opened_error}")
+
+    if info and info["likely_tbone"] and not args.no_set_default and system_audio.is_supported():
+        result = system_audio.set_default_input(info["name"], info.get("manufacturer"))
+        print(f"  OS default {result.message}")
     print(f"  saving to  {outdir}")
     print(f"  interface  {url}")
     print("\nPress Ctrl+C to stop.\n", flush=True)

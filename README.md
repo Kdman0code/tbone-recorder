@@ -66,6 +66,12 @@ It picks the t.bone automatically, starts the level meter and opens the
 interface in your browser. Press **Record** (or hit the space bar) to start, and
 again to stop. Files land in `~/Music/tbone-recordings` as WAV.
 
+Whenever it picks the t.bone, it also makes it your **system default
+microphone** -- on macOS and Windows -- so every other app (Zoom, voice
+memos, whatever) uses it too, the same way plugging in a USB headset usually
+takes over as default. Pass `--no-set-default` to leave your OS default
+alone and only use the t.bone inside this app.
+
 | Option | What it does |
 | --- | --- |
 | `tbone-rec` | start the interface |
@@ -76,6 +82,7 @@ again to stop. Files land in `~/Music/tbone-recordings` as WAV.
 | `tbone-rec --outdir ~/Recordings` | save somewhere else |
 | `tbone-rec --port 8765` | pin the HTTP port |
 | `tbone-rec --no-browser` | do not open a browser |
+| `tbone-rec --no-set-default` | don't touch the OS default microphone |
 
 Your device, format and folder choices are remembered between runs.
 
@@ -134,6 +141,9 @@ audio would distort.
 - `server.py` — a loopback-only HTTP server. It requires a per-run token and
   rejects non-loopback `Host` headers, so a web page you happen to have open
   cannot reach your microphone.
+- `system_audio.py` — makes the t.bone the OS default input: CoreAudio via
+  `ctypes` on macOS, the undocumented `IPolicyConfig` interface (via `pycaw`)
+  on Windows. Best-effort; recording works even if the OS refuses.
 - `web/` — the interface. Meters stream over Server-Sent Events.
 
 Built on [PortAudio](http://www.portaudio.com/) via

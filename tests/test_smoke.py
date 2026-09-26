@@ -4,7 +4,7 @@ import sys
 
 import pytest
 
-from tbone_recorder import config, devices, engine
+from tbone_recorder import config, devices, engine, system_audio
 
 
 def test_dbfs_scale():
@@ -98,6 +98,33 @@ def test_permission_hint_mentions_the_right_settings_panel():
     hint = devices.permission_hint()
     if sys.platform in ("darwin",) or sys.platform.startswith("win"):
         assert hint and "Microphone" in hint
+
+
+def test_is_supported_matches_known_platforms(monkeypatch):
+    monkeypatch.setattr(system_audio.sys, "platform", "darwin")
+    assert system_audio.is_supported()
+    monkeypatch.setattr(system_audio.sys, "platform", "win32")
+    assert system_audio.is_supported()
+    monkeypatch.setattr(system_audio.sys, "platform", "linux")
+    assert not system_audio.is_supported()
+
+
+def test_set_default_input_unsupported_platform_is_safe(monkeypatch):
+    """Never raises, even where there's no implementation at all."""
+    monkeypatch.setattr(system_audio.sys, "platform", "linux")
+    result = system_audio.set_default_input("Microphone", "Thomann")
+    assert result.ok is False
+    assert "supported" in result.message.lower()
+
+
+def test_set_default_input_missing_device_is_safe():
+    """A device that doesn't exist must fail cleanly, not raise or hang --
+    this runs for real on macOS and Windows CI runners, so it also doubles
+    as a smoke test of the platform-specific lookup code with no matches."""
+    if not system_audio.is_supported():
+        pytest.skip("not supported on this platform")
+    result = system_audio.set_default_input("Definitely Not A Real Device", "Nobody")
+    assert result.ok is False
 
 
 def test_disconnect_midrecording_clears_recording_state():
