@@ -148,7 +148,18 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_check(device, samplerate)
 
     outdir = Path(cfg["outdir"]).expanduser()
-    engine = RecorderEngine(outdir)
+    try:
+        engine = RecorderEngine(outdir)
+    except Exception:
+        # A remembered folder can be gone by the next run -- an unplugged
+        # external drive, a deleted directory -- so fall back rather than
+        # refusing to start.
+        fallback = cfg_mod.default_outdir()
+        print(f"Cannot write to {outdir}; using {fallback} instead.")
+        outdir = fallback
+        cfg["outdir"] = str(fallback)
+        cfg_mod.save(cfg)
+        engine = RecorderEngine(outdir)
 
     opened_error = None
     if device is not None:
