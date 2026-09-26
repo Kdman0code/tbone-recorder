@@ -225,7 +225,7 @@
 
   // ----------------------------------------------------------------- files
   const renderFiles = (files) => {
-    const key = files.map((f) => `${f.name}:${f.size}`).join("|");
+    const key = files.map((f) => `${f.name}:${f.size}:${f.exported}`).join("|");
     if (key === filesKey) return;
     filesKey = key;
     el.fileList.innerHTML = "";
@@ -255,6 +255,30 @@
         reveal.className = "ghost sm";
         reveal.textContent = "Show";
         reveal.onclick = () => post("/api/reveal", { name: f.name }).catch(() => {});
+
+        const mp3Name = f.name.replace(/\.wav$/i, ".mp3");
+        const exportBtn = document.createElement("button");
+        exportBtn.className = "ghost sm";
+        const ffmpegOk = !lastStatus || lastStatus.ffmpeg_available !== false;
+        if (f.exported) {
+          exportBtn.textContent = "Show MP3";
+          exportBtn.onclick = () => post("/api/reveal", { name: mp3Name }).catch(() => {});
+        } else {
+          exportBtn.textContent = "Export MP3";
+          exportBtn.disabled = !ffmpegOk;
+          exportBtn.title = ffmpegOk ? "" : "Install ffmpeg to enable MP3 export (e.g. brew install ffmpeg)";
+          exportBtn.onclick = async () => {
+            exportBtn.disabled = true;
+            exportBtn.textContent = "Exporting…";
+            try { await post("/api/export", { name: f.name }); filesKey = ""; refreshFiles(); }
+            catch (err) {
+              exportBtn.disabled = false;
+              exportBtn.textContent = "Export MP3";
+              alert(err.message);
+            }
+          };
+        }
+
         const del = document.createElement("button");
         del.className = "ghost sm";
         del.textContent = "Delete";
@@ -263,7 +287,7 @@
           try { await post("/api/delete", { name: f.name }); filesKey = ""; refreshFiles(); }
           catch (err) { alert(err.message); }
         };
-        li.append(audio, reveal, del);
+        li.append(audio, reveal, exportBtn, del);
       }
       el.fileList.append(li);
     }

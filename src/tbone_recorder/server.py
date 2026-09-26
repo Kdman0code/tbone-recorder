@@ -24,6 +24,7 @@ from pathlib import Path
 
 from . import config as cfg_mod
 from . import devices as devices_mod
+from . import export as export_mod
 from .engine import MONO_SOURCES, SUBTYPES, EngineError, RecorderEngine
 
 WEB_ROOT = Path(__file__).parent / "web"
@@ -36,6 +37,9 @@ class AppState:
         self.cfg = cfg
         self.token = token
         self.lock = threading.Lock()
+        # Probed once at startup, not per status poll -- shutil.which() does a
+        # PATH stat walk and the SSE loop asks for status ~12x/second.
+        self.ffmpeg_path = export_mod.find_ffmpeg()
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -161,6 +165,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._api_reveal(body)
             elif path == "/api/delete":
                 self._api_delete(body)
+            elif path == "/api/export":
+                self._api_export(body)
             elif path == "/api/quit":
                 self._json({"ok": True})
                 threading.Thread(target=self._shutdown, daemon=True).start()
@@ -292,6 +298,21 @@ class Handler(BaseHTTPRequestHandler):
             return
         self._json({"ok": True, "recordings": self._list_recordings()})
 
+    def _api_export(self, body: dict):
+        target = self._safe_recording(body.get("name", ""))
+        if target is None:
+            self._error("no such recording", 404)
+            return
+        if self.state.engine.record_path and target == self.state.engine.record_path:
+            self._error("that file is still recording")
+            return
+        try:
+            dest = export_mod.export_mp3(target, ffmpeg=self.state.ffmpeg_path)
+        except export_mod.ExportError as exc:
+            self._error(str(exc))
+            return
+        self._json({"ok": True, "file": dest.name, "recordings": self._list_recordings()})
+
     # -------------------------------------------------------------- helpers
 
     def _status_payload(self) -> dict:
@@ -299,6 +320,7 @@ class Handler(BaseHTTPRequestHandler):
         st["outdir"] = str(self.state.engine.outdir)
         st["subtypes"] = SUBTYPES
         st["mono_sources"] = list(MONO_SOURCES)
+        st["ffmpeg_available"] = self.state.ffmpeg_path is not None
         return st
 
     def _list_recordings(self) -> list[dict]:
@@ -319,6 +341,7 @@ class Handler(BaseHTTPRequestHandler):
                             self.state.engine.record_path
                             and f == self.state.engine.record_path
                         ),
+                        "exported": f.with_suffix(".mp3").is_file(),
                     }
                 )
         except Exception:
