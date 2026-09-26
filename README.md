@@ -62,6 +62,15 @@ python3 -m venv .venv && .venv/bin/pip install -e .
 tbone-rec
 ```
 
+Or skip the terminal: double-click **`tbone-rec.app`** (macOS) or
+**`tbone-rec.vbs`** (Windows) in this folder. Either one installs `tbone-rec`
+for you the first time (same as the install scripts above) and then launches
+it with no visible terminal window -- quit from the **Quit** button in the
+page itself. If a launch ever seems to do nothing, check the log it writes:
+`~/Library/Logs/tbone-recorder/tbone-rec.log` on macOS, or
+`%LOCALAPPDATA%\tbone-recorder\logs\tbone-rec.log` on Windows (double-click
+`tbone-rec.bat` instead of the `.vbs` to watch it run in a console window).
+
 It picks the t.bone automatically, starts the level meter and opens the
 interface in your browser. Press **Record** (or hit the space bar) to start, and
 again to stop. Files land in `~/Music/tbone-recordings` as WAV.

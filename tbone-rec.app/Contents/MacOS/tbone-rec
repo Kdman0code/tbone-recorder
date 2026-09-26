@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+# Double-click launcher for tbone-rec.
+#
+# Finder launches app bundles with a minimal environment -- no PATH from
+# .zshrc/.bash_profile -- so this has to find (or install) tbone-rec itself,
+# the same way install.sh does. Output has nowhere to go (no Terminal
+# window), so everything is logged instead of printed.
+set -uo pipefail
+
+REPO="https://github.com/Kdman0code/tbone-recorder"
+LOG_DIR="$HOME/Library/Logs/tbone-recorder"
+LOG_FILE="$LOG_DIR/tbone-rec.log"
+mkdir -p "$LOG_DIR"
+exec >>"$LOG_FILE" 2>&1
+
+echo "--- $(date) : launching tbone-rec ---"
+
+alert() {
+  osascript -e "display alert \"t.bone recorder\" message \"$1 See $LOG_FILE for details.\" as critical" >/dev/null 2>&1 || true
+}
+
+for candidate in "$HOME/.local/bin" "$HOME/.cargo/bin" /opt/homebrew/bin /usr/local/bin; do
+  [ -d "$candidate" ] && export PATH="$candidate:$PATH"
+done
+
+if ! command -v tbone-rec >/dev/null 2>&1; then
+  echo "tbone-rec not found; installing..."
+  if ! command -v uv >/dev/null 2>&1; then
+    curl -fsSL https://astral.sh/uv/install.sh | sh
+    for candidate in "$HOME/.local/bin" "$HOME/.cargo/bin"; do
+      [ -d "$candidate" ] && export PATH="$candidate:$PATH"
+    done
+  fi
+  if command -v uv >/dev/null 2>&1; then
+    uv tool install --force "git+${REPO}"
+    uv tool update-shell >/dev/null 2>&1 || true
+  fi
+fi
+
+if ! command -v tbone-rec >/dev/null 2>&1; then
+  echo "still could not find tbone-rec after attempting to install it"
+  alert "Could not install tbone-rec."
+  exit 1
+fi
+
+tbone-rec
+status=$?
+if [ "$status" -ne 0 ]; then
+  alert "tbone-rec exited with an error."
+fi
+exit "$status"
