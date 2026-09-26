@@ -98,3 +98,22 @@ def test_permission_hint_mentions_the_right_settings_panel():
     hint = devices.permission_hint()
     if sys.platform in ("darwin",) or sys.platform.startswith("win"):
         assert hint and "Microphone" in hint
+
+
+def test_disconnect_midrecording_clears_recording_state():
+    """Unplugging mid-take must not leave the UI showing a live recording."""
+    eng = engine.RecorderEngine.__new__(engine.RecorderEngine)
+    eng._stream = object()          # a stream we did not close ourselves
+    eng.recording = True
+    eng.record_path = __import__("pathlib").Path("/tmp/take.wav")
+    eng.record_started_at = 1.0
+    eng.levels = [{"rms": -3.0, "peak": -2.0, "hold": -1.0}]
+    eng.error = None
+
+    eng._on_finished()
+
+    assert eng.recording is False
+    assert eng.record_path is None
+    assert "take.wav" in eng.error and "kept" in eng.error
+    # Meters must not keep showing the last live level.
+    assert eng.levels[0]["peak"] == engine._SILENCE

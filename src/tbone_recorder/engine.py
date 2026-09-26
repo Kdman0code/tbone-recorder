@@ -185,7 +185,16 @@ class RecorderEngine:
         # Only an involuntary stop is an error; close() clears _stream first.
         if self._stream is not None:
             self.error = "Audio stream stopped (device disconnected?)."
+            # Clearing the flag lets the writer thread drain and close the file,
+            # so whatever was captured before the unplug is still a valid WAV.
             self.recording = False
+            if self.record_path is not None:
+                self.error = (
+                    f"Audio stream stopped (device disconnected?). "
+                    f"{self.record_path.name} was closed and kept."
+                )
+                self.record_path = None
+                self.record_started_at = None
             # Zero the meters: leaving the last block's levels on screen makes a
             # dead input look like a live one.
             for lvl in self.levels:
