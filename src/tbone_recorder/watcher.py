@@ -17,6 +17,7 @@ it in the foreground too, which is how to try it before installing it.
 from __future__ import annotations
 
 import datetime as _dt
+import sys
 import time
 from pathlib import Path
 
@@ -49,10 +50,19 @@ def _file_logger():
     path = log_path()
     path.parent.mkdir(parents=True, exist_ok=True)
 
+    # Under the login item, launchd already points stdout at this same file,
+    # so echoing as well would write every line twice. Only echo when someone
+    # is actually watching a terminal.
+    try:
+        interactive = sys.stdout is not None and sys.stdout.isatty()
+    except Exception:
+        interactive = False
+
     def log(message: str) -> None:
         stamp = _dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         line = f"[{stamp}] {message}"
-        print(line, flush=True)
+        if interactive:
+            print(line, flush=True)
         try:
             with path.open("a", encoding="utf-8") as f:
                 f.write(line + "\n")

@@ -267,3 +267,39 @@ def test_autostart_windows_install_uses_schtasks(monkeypatch):
     create_call = next(c for c in calls if "/Create" in c)
     assert "tbone_recorder" in " ".join(create_call)
     assert "--watch" in " ".join(create_call)
+
+
+def test_watcher_log_is_not_written_twice_under_launchd(tmp_path, monkeypatch, capsys):
+    """launchd points stdout at the same log file, so echoing as well would
+    duplicate every line."""
+    from tbone_recorder import watcher
+
+    monkeypatch.setattr(watcher.cfg_mod, "config_dir", lambda: tmp_path)
+    log = watcher._file_logger()          # pytest's captured stdout is not a tty
+    log("hello")
+
+    written = (tmp_path / "watcher.log").read_text().strip().splitlines()
+    assert len(written) == 1
+    assert written[0].endswith("hello")
+    # Nothing echoed, or launchd would write it a second time.
+    assert capsys.readouterr().out == ""
+
+
+def test_watcher_log_echoes_when_interactive(tmp_path, monkeypatch):
+    """Run by hand in a terminal, it should still print as well as log."""
+    import io
+
+    from tbone_recorder import watcher
+
+    class Tty(io.StringIO):
+        def isatty(self):
+            return True
+
+    monkeypatch.setattr(watcher.cfg_mod, "config_dir", lambda: tmp_path)
+    fake = Tty()
+    monkeypatch.setattr(watcher.sys, "stdout", fake)
+    log = watcher._file_logger()
+    log("hello")
+
+    assert "hello" in fake.getvalue()
+    assert len((tmp_path / "watcher.log").read_text().strip().splitlines()) == 1
