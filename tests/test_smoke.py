@@ -1,12 +1,29 @@
 """Tests that run without any audio hardware, so CI can check every platform."""
 
+import http.server
+import json
+import os
+import stat
+import socket
+import subprocess
 import sys
+import threading
 
 import pytest
 
 import shutil
 
-from tbone_recorder import autostart, config, devices, engine, export, system_audio, watcher
+from tbone_recorder import (
+    autostart,
+    cli,
+    config,
+    devices,
+    engine,
+    export,
+    runtime,
+    system_audio,
+    watcher,
+)
 
 
 def test_dbfs_scale():
@@ -303,3 +320,146 @@ def test_watcher_log_echoes_when_interactive(tmp_path, monkeypatch):
 
     assert "hello" in fake.getvalue()
     assert len((tmp_path / "watcher.log").read_text().strip().splitlines()) == 1
+
+
+# --- runtime.json: how a second launch finds the server already running ----
+
+
+class _Refuser(http.server.BaseHTTPRequestHandler):
+    """Answers every request with 403, like a server whose token moved on."""
+
+    def do_GET(self):
+        self.send_response(403)
+        self.end_headers()
+        self.wfile.write(b"forbidden")
+
+    def log_message(self, *args):
+        pass
+
+
+def _closed_port() -> int:
+    """A port with nothing listening: bound to claim it, then released."""
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
+
+
+def test_runtime_publish_advertises_the_running_server(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "config_dir", lambda: tmp_path)
+    runtime.publish("http://127.0.0.1:9/?t=tok", 9, "tok", tmp_path / "recordings")
+    data = runtime.read()
+    assert data["port"] == 9
+    assert data["token"] == "tok"
+    assert data["pid"] == os.getpid()
+    runtime.clear()
+    assert runtime.read() is None
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX permission bits")
+def test_runtime_file_keeps_the_token_private(tmp_path, monkeypatch):
+    """The file carries a token that drives the microphone."""
+    monkeypatch.setattr(config, "config_dir", lambda: tmp_path)
+    runtime.publish("http://127.0.0.1:9/?t=tok", 9, "tok", tmp_path)
+    assert stat.S_IMODE(runtime.state_path().stat().st_mode) == 0o600
+
+
+def test_runtime_clear_leaves_a_newer_servers_entry(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "config_dir", lambda: tmp_path)
+    runtime.publish("http://127.0.0.1:9/?t=tok", 9, "tok", tmp_path)
+    data = json.loads(runtime.state_path().read_text())
+    data["pid"] = os.getpid() + 1          # a newer server took the file over
+    runtime.state_path().write_text(json.dumps(data))
+    runtime.clear()
+    assert runtime.state_path().exists()
+
+
+@pytest.mark.skipif(os.name == "nt", reason="pid_alive cannot probe on Windows")
+def test_runtime_read_ignores_a_dead_pid(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "config_dir", lambda: tmp_path)
+    finished = subprocess.Popen([sys.executable, "-c", ""])
+    finished.wait()
+    runtime.state_path().write_text(json.dumps({
+        "pid": finished.pid,
+        "url": "http://127.0.0.1:9/?t=tok",
+        "port": 9,
+        "token": "tok",
+    }))
+    assert runtime.read() is None
+
+
+def test_live_server_deletes_an_entry_nothing_answers(tmp_path, monkeypatch):
+    """A server that is killed never runs clear(), so its entry outlives it.
+
+    Trusting that entry would send every later launch to a server that isn't
+    there -- one crash would break starting the app until somebody deleted
+    the file by hand -- so a dead entry has to be cleaned up on discovery.
+    """
+    monkeypatch.setattr(config, "config_dir", lambda: tmp_path)
+    port = _closed_port()
+    runtime.publish(f"http://127.0.0.1:{port}/?t=tok", port, "tok", tmp_path)
+    assert runtime.state_path().exists()   # our own pid, so it looks alive
+
+    assert runtime.live_server(timeout=1.0) is None
+    assert not runtime.state_path().exists()
+
+
+def test_live_server_keeps_a_server_that_only_refuses_us(tmp_path, monkeypatch):
+    """403 is still an answer: something is serving there, so don't evict it."""
+    monkeypatch.setattr(config, "config_dir", lambda: tmp_path)
+    httpd = http.server.HTTPServer(("127.0.0.1", 0), _Refuser)
+    port = httpd.server_address[1]
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    try:
+        runtime.publish(f"http://127.0.0.1:{port}/?t=tok", port, "tok", tmp_path)
+        found = runtime.live_server(timeout=3.0)
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+    assert found is not None
+    assert found["port"] == port
+    assert runtime.state_path().exists()
+
+
+def test_second_launch_hands_off_instead_of_starting_a_server(tmp_path, monkeypatch):
+    """Double-clicking the icon again opens the running server, not a rival."""
+    monkeypatch.setattr(config, "config_dir", lambda: tmp_path)
+    monkeypatch.setattr(config, "config_path", lambda: tmp_path / "config.json")
+    monkeypatch.setattr(cli.runtime, "live_server", lambda *a, **k: {
+        "pid": os.getpid(), "url": "http://127.0.0.1:7/?t=tok",
+        "port": 7, "token": "tok", "outdir": str(tmp_path),
+    })
+    opened = []
+    monkeypatch.setattr(cli.webbrowser, "open", opened.append)
+    assert cli.main([]) == 0
+    assert opened == ["http://127.0.0.1:7/?t=tok"]
+
+
+def test_check_does_not_hand_off_to_a_running_server(tmp_path, monkeypatch):
+    """--check is a diagnostic: it has to open the device itself to mean
+    anything, so it must never turn into "here is a browser tab"."""
+    monkeypatch.setattr(config, "config_dir", lambda: tmp_path)
+    monkeypatch.setattr(config, "config_path", lambda: tmp_path / "config.json")
+    monkeypatch.setattr(cli.runtime, "live_server", lambda *a, **k: {
+        "pid": os.getpid(), "url": "http://127.0.0.1:7/?t=tok",
+        "port": 7, "token": "tok", "outdir": str(tmp_path),
+    })
+    checked = []
+    monkeypatch.setattr(cli, "cmd_check", lambda *a, **k: checked.append(True) or 42)
+    assert cli.main(["--check"]) == 42
+    assert checked
+
+
+def test_new_instance_ignores_a_running_server(monkeypatch):
+    class _Stop(Exception):
+        pass
+
+    consulted = []
+    monkeypatch.setattr(cli.runtime, "live_server", lambda *a, **k: consulted.append(1))
+
+    def _stop():
+        raise _Stop
+
+    monkeypatch.setattr(cli.cfg_mod, "load", _stop)
+    with pytest.raises(_Stop):
+        cli.main(["--new-instance"])
+    assert not consulted

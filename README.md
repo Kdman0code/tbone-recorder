@@ -108,6 +108,7 @@ it.
 | `tbone-rec --outdir ~/Recordings` | save somewhere else |
 | `tbone-rec --port 8765` | pin the HTTP port |
 | `tbone-rec --no-browser` | do not open a browser |
+| `tbone-rec --new-instance` | start a second server even if one is already running |
 | `tbone-rec --no-set-default` | don't touch the OS default microphone |
 | `tbone-rec --watch` | foreground loop: switch the OS default whenever the t.bone connects |
 | `tbone-rec --install-watcher` | do the above automatically, forever, starting at login |
@@ -170,6 +171,13 @@ audio would distort.
 - `server.py` — a loopback-only HTTP server. It requires a per-run token and
   rejects non-loopback `Host` headers, so a web page you happen to have open
   cannot reach your microphone.
+- `runtime.py` — a running server publishes its URL, port and token to a
+  `runtime.json` readable only by you. Starting the app again finds that
+  server and opens a tab onto it, instead of starting a second one to fight
+  the first for the microphone — on macOS the app bundle could not be
+  double-clicked twice at all, because LaunchServices tried to activate an
+  app that has no event loop. The entry is confirmed over HTTP before it is
+  trusted, so one left behind by a crash is discarded rather than followed.
 - `system_audio.py` — makes the t.bone the OS default input: CoreAudio via
   `ctypes` on macOS, the undocumented `IPolicyConfig` interface (via `pycaw`)
   on Windows. Best-effort; recording works even if the OS refuses.
