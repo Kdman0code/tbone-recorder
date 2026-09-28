@@ -12,6 +12,7 @@ from pathlib import Path
 from . import autostart
 from . import config as cfg_mod
 from . import devices as devices_mod
+from . import runtime
 from . import system_audio
 from . import watcher as watcher_mod
 from .engine import EngineError, RecorderEngine
@@ -98,6 +99,33 @@ def cmd_check(device: int | None, samplerate: int, seconds: float = 3.0) -> int:
     return 0
 
 
+def cmd_hand_off(existing: dict, args: argparse.Namespace) -> int:
+    """Point at the server that is already running instead of starting one."""
+    # Rebuilt from the port rather than read from the file: loopback is the
+    # only Host the server will accept, so this address always works.
+    url = f"http://127.0.0.1:{existing['port']}/?t={existing['token']}"
+    print(f"t.bone recorder is already running (pid {existing['pid']}).")
+    print(f"  interface  {url}")
+    if existing.get("outdir"):
+        print(f"  saving to  {existing['outdir']}")
+    ignored = [
+        flag
+        for flag, value in (
+            ("--device", args.device),
+            ("--samplerate", args.samplerate),
+            ("--outdir", args.outdir),
+            ("--port", args.port),
+        )
+        if value
+    ]
+    if ignored:
+        print(f"  note       {', '.join(ignored)} ignored by the running server;")
+        print("             quit it first, or pass --new-instance.")
+    if not args.no_browser:
+        webbrowser.open(url)
+    return 0
+
+
 def cmd_watch() -> int:
     """Foreground loop: make the t.bone the OS default whenever it connects.
 
@@ -149,6 +177,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--port", type=int, default=0, help="HTTP port (default: pick a free one)")
     parser.add_argument("--no-browser", action="store_true", help="do not open a browser")
     parser.add_argument(
+        "--new-instance",
+        action="store_true",
+        help="start a second server even if one is already running",
+    )
+    parser.add_argument(
         "--no-set-default",
         action="store_true",
         help="don't make the t.bone the OS default microphone when it's the one in use",
@@ -178,6 +211,15 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_uninstall_watcher()
     if args.watch:
         return cmd_watch()
+
+    # Launching twice -- double-clicking the icon again, usually -- should
+    # show you the server you already have rather than starting a second one
+    # to fight it for the microphone.  --check is exempt: it is a diagnostic
+    # and has to open the device itself to mean anything.
+    if not args.new_instance and not args.check:
+        existing = runtime.live_server()
+        if existing:
+            return cmd_hand_off(existing, args)
 
     cfg = cfg_mod.load()
     if args.outdir:
@@ -230,6 +272,7 @@ def main(argv: list[str] | None = None) -> int:
     httpd, token = serve(engine, cfg, port=args.port)
     host, port = httpd.server_address[0], httpd.server_address[1]
     url = f"http://{host}:{port}/?t={token}"
+    runtime.publish(url, port, token, outdir)
 
     try:
         sys.stdout.reconfigure(line_buffering=True)
@@ -261,6 +304,10 @@ def main(argv: list[str] | None = None) -> int:
     except KeyboardInterrupt:
         print("\nStopping...")
     finally:
+        # First, so a launch racing this shutdown stops being pointed at a
+        # server that is on its way out.  A kill skips this entirely, which
+        # is why live_server re-checks over HTTP instead of trusting the file.
+        runtime.clear()
         if engine.recording:
             saved = engine.stop_recording()
             if saved:
